@@ -1,0 +1,53 @@
+Diamond pattern
+1 6 2
+2 2 2
+4 3 1
+~@:3,[{[.3-~' '*\' '*'/'\.'\\'4$]2$*}%n*.-1%]*n*\;
+
+Happy primes
+139 > happy prime
+2 > sad prime
+440 > happy non-prime
+78 > sad non-prime
+~:@.{0\`{15&.*+}/}*1=!"happy sad "6/=@,{@\)%!},,2=4*"non-prime">
+
+Code-Golf: What is the shortest program that compiles and crashes?
+*
+
+Sierpinski's Triangle
+2
+3
+5
+2\~(?,{-1*}$1: ;{"  ":$*. 2base.{[$$+' /\ ']=}%n+@@{[$$+"/__\\"]=}%n .2*^: ;}%
+
+XOR encryption
+n.+/~:k;.,.)k.,@\/)*<{\(@^}%
+
+Regex parser
+n%([]:B:$:_"()"@*{:I"()*+|?"[{}/]?[{[[0B$,+:B))\;)]_]+}{B)):ß;:B;qß(:ß;}{8q}{[[0ß0$,)]]+}:8{[[0B-1=:ß)]]+:$q}{ß>$ß<\([0+$,+]\++}:q{[[I$,:ß)]]+}]=~:$}/;{n+[0]:3\{:c;;3:1_:3;{,}{)[$=]_*2/{~\.{c={3|:3}*;}{;.1|1,\:1,<{+0}*;}if}/}/;}/;1$,?)"true""false"if n}%
+
+Palindrome
+abacaba
+deadbeef
+.-1%=
+
+Factorial
+5
+,{1+}%{*}*
+
+Spiderweb
+1
+4
+7
+~):@,{@\:&-:0' ': *&' /'*'\\':~'_':
+0*.'|'\'/'~ +&*n}%'_/'@*3 *'\_'@*n' \\'@*3
+*@'/ '*n@,{):& *@&-:( ~+*'/''_ '1/(!=&*.'|'\~'/ '(*n}%
+
+Greatest common divisor
+2706 410
+~{.@\%.}do;
+
+1000 digits of PI
+;''
+6666,-2%{2+.2/@*\/10.3??2*+}*
+`50<~\; #truncate for displaying purposes
