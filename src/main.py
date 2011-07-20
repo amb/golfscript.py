@@ -1,43 +1,23 @@
 import re, logging
 from time import sleep
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
-#input = """ """; program = """~:@.{0\`{15&.*+}/}*1=!"happy sad "6/=@,{@\)%!},,2=4*"non-prime">"""
-#input = """ """; program = """'asdf'{+}*"""
+#program = """~:@.{0\`{15&.*+}/}*1=!"happy sad "6/=@,{@\)%!},,2=4*"non-prime">"""
+#program = """'asdf'{+}*"""
+#program = """{n+~."+#,#6$DWOXB79Bd")base`1/10/~{~2${~1$+}%(;+~}%++=" is "\"."1$4$4-}do;;;"magic." """
+#program = """''6666,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""
+#program = """;''6666,-2%{2+.2/@*\/10.3??2*+}*"""
 
-#input = """ """; program = """{n+~."+#,#6$DWOXB79Bd")base`1/10/~{~2${~1$+}%(;+~}%++=" is "\"."1$4$4-}do;;;"magic." """
+program = """5 2,~{..p@+.100<}do"""
 
-#input = """ """; program = """''6666,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""
-
-#input = """ """; program = """;''10,-2%{2+.2/@*\/10.3??2*+}*"""
-
-input = """5"""; program = """ 2,~{..p@+.100<}do"""
-#input = """ """; program = """[1 2 3 4]{+}*"""
-#input = """ """; program = """2 4*"""
-#input = """ """; program = """7 3 /"""
-#input = """ """; program = """[1 2 3 4 5 6]{.* 20>}?"""
-#input = """ """; program = """5 [4 3 5 1]?"""
-#input = """ """; program = """2 8?"""
-#input = """ """; program = """[1 2 3 4 5]2%`[1 2 3 4 5]-1%`"""
-#input = """ """; program = """5`"""
-#input = """[1 2 3]"""; program = """`"""
-#input = """ """; program = """{[2 3 4] 5 3 6 {.@\%.}*}`"""
-#input = """ """; program = """ 5,`"""
-#input = """2706 410"""; program = """{.@\%.}do;"""
-#input = """5"""; program = """{1-..}do"""
-#input = """5"""; program = """ 1+,1>{*}*"""
-#input = """ """; program = """ 3 4 >"""
-#input = """ """; program = """[1 2 3][4 5]+"""
-#input = """ """; program = """1 1+"""
-#input = """5"""; program = """,{1+}%{*}*"""
-
-program = input + program
-
-lex=re.compile("""([a-zA-Z_][a-zA-Z0-9_]*)|('(?:\\.|[^'])*'?)|("(?:\\.|[^"])*"?)|(-?[0-9]+)|(#[^\n\r]*)|(.)""")
-noop = lambda x: x
-lexems=["w","s","s","i","comment","w"]
-conv  =[noop,eval,eval,int,noop,noop ]
+lex    = re.compile("""([a-zA-Z_][a-zA-Z0-9_]*)|"""
+                    """('(?:\\.|[^'])*'?)|"""
+                    """("(?:\\.|[^"])*"?)|"""
+                    """(-?[0-9]+)|(#[^\n\r]*)|(.)""", re.M)
+noop   = lambda x: x
+lexems = ["w","s","s","i","comment","w"]
+conv   = [noop,eval,eval,int,noop,noop ]
      
 tokmap = {"~":"bitwise",
           "`":"quote",
@@ -66,10 +46,10 @@ tokmap = {"~":"bitwise",
           "p":"pputs"
           }
 
-cmds=[[(lexems[i],conv[i](j)) for i,j in enumerate(x) if j != ''][0] for x in lex.findall(program)]
-cmds = cmds[::-1]
-
-def interpret(c):
+def interpret(prg):
+    c=[[(lexems[i],conv[i](j)) for i,j in enumerate(x) if j != ''][0] 
+      for x in lex.findall(prg)][::-1]
+    logging.debug(c)
     def recurse_blocks(inp):
         s = []
         while True:
@@ -81,12 +61,10 @@ def interpret(c):
     code = []
     while c:
         i = c.pop()
-        if   i[1] == '{': code.append(recurse_blocks(cmds))
+        if   i[1] == '{': code.append(recurse_blocks(c))
         elif i[1] == '}': raise ValueError("Blocks don't match.")
         else:             code.append(i)
     return code[::-1]
-
-ast = interpret(cmds)
 
 stack = []
 # 0 [] "" {} = false, everything else = true
@@ -113,10 +91,10 @@ def funcs():
         logging.debug("quote():"+repr(a))
         def ww(i):
             if i[0] == 'i': return repr(i[1])
-            if i[0] == 'a': return "[" + ' '.join([ww(x) for x in i[1]]) + "]"
-            if i[0] == 's': return i[1]#'\"' + i[1] + '\"'
-            if i[0] == 'b': return '{' + ''.join([ww(x) for x in i[1]]) + '}'
+            if i[0] == 's': return i[1] #'\"' + i[1] + '\"'
             if i[0] == 'w': return i[1]
+            if i[0] == 'a': return "[" + ' '.join([ww(x) for x in i[1]]) + "]"
+            if i[0] == 'b': return '{' + ''.join([ww(x) for x in i[1]]) + '}'
             
         if type(a) == type([]): t = ' '.join([ww(x) for x in a])
         else: t = ww(a)
@@ -154,7 +132,6 @@ def funcs():
             logging.debug(repr(b)+repr(c))
             cm = a[0][1][::-1]+[b]+[c]
             logging.debug(""+repr(cm))
-            sleep(1)
             x.append(exec_ast(cm, stack)[0])
         return x[0]
     
@@ -235,7 +212,7 @@ def funcs():
     # do
     def b_doo(a): 
         while True:
-            x = exec_ast(a[0][1][::-1], stack)
+            exec_ast(a[0][1][::-1], stack)
             if not _true(_pop()): break
 
     def pputs(): 
@@ -270,7 +247,7 @@ def exec_ast(c, st):
                 for k in ks:
                     # go through possible type set and try to match
                     if len(k) <= len(st):
-                        t = ''.join( [x[0] for x in st[-len(k):]] )
+                        t = ''.join([x[0] for x in st[-len(k):]])
                         if t == k:     
                             # match found
                             mm = True
@@ -284,7 +261,10 @@ def exec_ast(c, st):
                                 logging.debug("PUSH:"+repr(r))
                             break
                     else:
-                        raise ValueError("EE Stack underflow. ",st)
+                        raise ValueError("Stack underflow.")
+                if not mm: raise ValueError("Unable to match instruction:"+
+                                            repr(tm)+","+repr(ks)+","+
+                                            repr([x[0] for x in st[-3:]]))
             else:
                 # words with no defined types
                 r = words[tm]['']()
@@ -292,11 +272,38 @@ def exec_ast(c, st):
                 if r: 
                     logging.debug("append:"+repr(r))
                     st.append(r)
-
         else:
             # not a word, just add to stack
             st.append(i)
     logging.debug("exit:"+repr(stack))
     return st[:]
-            
-print exec_ast(ast, stack)
+      
+def run_tests():
+    global stack
+    tests = {"""[1 2 3 4]{+}*""":"",
+             """2 4*""":"",
+             """7 3 /""":"",
+             """[1 2 3 4 5 6]{.* 20>}?""":"",
+             """5`""":"",
+             """[1 2 3]`""":"",
+             """{[2 3 4] 5 3 6 {.@\%.}*}`""":"",
+             """ 5,`""":"",
+             """2706 410{.@\%.}do;""":"",
+             """5{1-..}do""":"",
+             """5 1+,1>{*}*""":"",
+             """ 3 4 >""":"",
+             """[1 2 3][4 5]+""":"",
+             """1 1+""":"",
+             """5,{1+}%{*}*""":""
+             }
+    
+    for i,j in tests.iteritems():
+        try:
+            stack = []
+            print i,"=>\t\t",exec_ast(interpret(i), stack),j
+        except:
+            print "FAIL:",i,j
+
+ 
+run_tests()           
+#print exec_ast(interpret(program), stack)
