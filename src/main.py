@@ -6,12 +6,13 @@ logging.basicConfig(level=logging.DEBUG)
 #input = """ """; program = """~:@.{0\`{15&.*+}/}*1=!"happy sad "6/=@,{@\)%!},,2=4*"non-prime">"""
 #input = """ """; program = """'asdf'{+}*"""
 
-input = """ """; program = """''6666,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""
+#input = """ """; program = """{n+~."+#,#6$DWOXB79Bd")base`1/10/~{~2${~1$+}%(;+~}%++=" is "\"."1$4$4-}do;;;"magic." """
 
-input = """ """; program = """;''10,-2%{2+.2/@*\/10.3??2*+}*"""
+#input = """ """; program = """''6666,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""
 
-#input = """5"""; program = """ 2,~.{;..p@+..100<}do"""
-#input = """ """; program = """50p"""
+#input = """ """; program = """;''10,-2%{2+.2/@*\/10.3??2*+}*"""
+
+input = """5"""; program = """ 2,~{..p@+.100<}do"""
 #input = """ """; program = """[1 2 3 4]{+}*"""
 #input = """ """; program = """2 4*"""
 #input = """ """; program = """7 3 /"""
@@ -31,18 +32,13 @@ input = """ """; program = """;''10,-2%{2+.2/@*\/10.3??2*+}*"""
 #input = """ """; program = """1 1+"""
 #input = """5"""; program = """,{1+}%{*}*"""
 
-
 program = input + program
 
 lex=re.compile("""([a-zA-Z_][a-zA-Z0-9_]*)|('(?:\\.|[^'])*'?)|("(?:\\.|[^"])*"?)|(-?[0-9]+)|(#[^\n\r]*)|(.)""")
 noop = lambda x: x
 lexems=["w","s","s","i","comment","w"]
 conv  =[noop,eval,eval,int,noop,noop ]
-cmds=[[(lexems[i],conv[i](j)) for i,j in enumerate(x) if j != ''][0] for x in lex.findall(program)]
-
-toks="""~ ` ! @ $ + - * / % | & ^ \ ; < > = , . ? ( ) 
-        and or xor print rand do while until if abs zip base"""
-        
+     
 tokmap = {"~":"bitwise",
           "`":"quote",
           "!":"exclamation",
@@ -69,11 +65,10 @@ tokmap = {"~":"bitwise",
           "do":"doo",
           "p":"pputs"
           }
-        
-# int array string block (word) (any)
-types=["i","a","s","b"] # + - ^ & | 
 
+cmds=[[(lexems[i],conv[i](j)) for i,j in enumerate(x) if j != ''][0] for x in lex.findall(program)]
 cmds = cmds[::-1]
+
 def interpret(c):
     def recurse_blocks(inp):
         s = []
@@ -94,16 +89,11 @@ def interpret(c):
 ast = interpret(cmds)
 
 stack = []
-
-def _int(a): return ("i", a)  
-def _arr(a): return ("a", a)
-
 # 0 [] "" {} = false, everything else = true
+def _false(a):
+    return a == ('i', 0) or a == ('a', []) or a == ('s', '') or a == ('b', [])
 def _true(a):
-    if a == ('i', 0) or a == ('a', []) or a == ('s', '') or a == ('b', None):
-        return False
-    else:
-        return True
+    return not _false(a)
 
 def _push(a): stack.append(a)
 def _pop():   return stack.pop()
@@ -111,10 +101,10 @@ def _pop():   return stack.pop()
 def funcs():
     global stack
     # ~
-    def i_bitwise(a): return _int(~a[0][1])
+    def i_bitwise(a): return ('i', ~a[0][1])
     def s_bitwise(a): raise ValueError("Unimplemented.")
     def b_bitwise(a): raise ValueError("Unimplemented.")
-    def a_bitwise(a): 
+    def a_bitwise(a):  
         for x in a[0][1]: _push(x)
     
     # `
@@ -132,10 +122,9 @@ def funcs():
         else: t = ww(a)
         logging.debug("quote():"+repr(t))
         return t
-        
-    
+
     # !
-    def exlamation(a): return _int(1-a[1])
+    def exlamation(a): return ('i',1-a[1])
     
     # @
     def rot3(): a=_pop(); b=_pop(); c=_pop(); _push(a); _push(c); _push(b);  
@@ -146,15 +135,15 @@ def funcs():
     def b_dollar(a,b): raise ValueError("Unimplemented.")
     
     # +
-    def i_i_plus(a): return _int(a[0][1]+a[1][1])
-    def a_a_plus(a): return _arr(a[1][1]+a[0][1])
+    def i_i_plus(a): return ('i', a[0][1]+a[1][1])
+    def a_a_plus(a): return ('a', a[1][1]+a[0][1])
     def b_b_plus(a): return ('b', a[0][1]+a[1][1])
     
     # -
-    def i_i_sub(a): return _int(a[1][1]-a[0][1])
+    def i_i_sub(a): return ('i', a[1][1]-a[0][1])
     
     # *
-    def i_i_mul(a): return _int(a[0][1]*a[1][1])
+    def i_i_mul(a): return ('i', a[0][1]*a[1][1])
     def b_i_mul(a): raise ValueError("Unimplemented.")
     def a_i_mul(a): raise ValueError("Unimplemented.")
     def a_a_mul(a): raise ValueError("Unimplemented.")
@@ -170,16 +159,16 @@ def funcs():
         return x[0]
     
     # /
-    def i_i_each(a): return _int(a[1][1]/a[0][1])
+    def i_i_each(a): return ('i', a[1][1]/a[0][1])
     def a_a_each(a): raise ValueError("Unimplemented.")
     def a_i_each(a): raise ValueError("Unimplemented.")
     def b_b_each(a): raise ValueError("Unimplemented.")
     def a_b_each(a): raise ValueError("Unimplemented.")
     
     # %
-    def i_i_mod(a): return _int(a[0][1]%a[1][1])
+    def i_i_mod(a): return ('i', a[0][1]%a[1][1])
     def a_a_mod(a): raise ValueError("Unimplemented.")
-    def a_i_mod(a): return _arr(a[1][1][::a[0][1]])
+    def a_i_mod(a): return ('a', a[1][1][::a[0][1]])
 
     def a_b_mod(a):
         x = []
@@ -187,7 +176,7 @@ def funcs():
             cm = [i]+a[0][1]
             x.append(exec_ast(cm[::-1], [])[0])
 
-        return _arr(x)
+        return ('a', x)
     
     # \
     def swap(): a=_pop(); b=_pop(); _push(a); _push(b);
@@ -197,18 +186,18 @@ def funcs():
         if stack: stack.pop()
     
     # ,
-    def i_comma(a): return ("a", [_int(x) for x in range(a[0][1])])
+    def i_comma(a): return ("a", [('i', x) for x in range(a[0][1])])
     
     # .
     def dup(): a = stack.pop(); stack.append(a); stack.append(a)
     
     # ?
-    def i_i_poww(a): return _int(a[1][1]**a[0][1])
+    def i_i_poww(a): return ('i', a[1][1]**a[0][1])
     def i_a_poww(a):
         for i,j in enumerate(a[0][1]): 
             logging.debug("i_a_poww(): "+repr(i)+repr(j)+repr(a[1]))
             if a[1][0] == j[0] and a[1][1] == j[1]: return i
-        return _int(-1)
+        return('i', -1)
     def a_b_poww(a):
         for i in a[1][1]:
             r = exec_ast(a[0][1][::-1]+[i], stack)
@@ -216,10 +205,10 @@ def funcs():
             if r[0] == ('i', 1): return i
     
     # )
-    def i_inc(a): return _int(a[0][1]+1)
+    def i_inc(a): return ('i', a[0][1]+1)
     
     # (
-    def i_dec(a): return _int(a[0][1]-1)
+    def i_dec(a): return ('i', a[0][1]-1)
     
     # " "
     def none(): return None
@@ -233,15 +222,15 @@ def funcs():
         while stack and stack[-1][1] != '[':
             l.append(stack.pop())
         stack.pop()
-        stack.append(_arr(l[::-1]))
+        stack.append(('a', l[::-1]))
        
     # <
-    def i_i_lessert(a): return _int(0 if a[0][1]<a[1][1] else 1)
-    def a_i_lessert(a): return _arr([i for i in a[1][1] if i[1]<a[0][1]])
+    def i_i_lessert(a): return ('i', 0 if a[0][1]<a[1][1] else 1)
+    def a_i_lessert(a): return ('a', [i for i in a[1][1] if i[1]<a[0][1]])
         
     # >
-    def i_i_greatert(a): return _int(0 if a[0][1]>a[1][1] else 1)
-    def a_i_greatert(a): return _arr([i for i in a[1][1] if i[1]>=a[0][1]])
+    def i_i_greatert(a): return ('i', 0 if a[0][1]>a[1][1] else 1)
+    def a_i_greatert(a): return ('a', [i for i in a[1][1] if i[1]>=a[0][1]])
         
     # do
     def b_doo(a): 
@@ -249,7 +238,6 @@ def funcs():
             x = exec_ast(a[0][1][::-1], stack)
             if not _true(_pop()): break
 
-    # pputs
     def pputs(): 
         print quote()
         
@@ -298,6 +286,7 @@ def exec_ast(c, st):
                     else:
                         raise ValueError("EE Stack underflow. ",st)
             else:
+                # words with no defined types
                 r = words[tm]['']()
                 logging.debug("Executed:"+repr(tm))
                 if r: 
