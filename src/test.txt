@@ -11,9 +11,6 @@ Happy primes
 78 > sad non-prime
 ~:@.{0\`{15&.*+}/}*1=!"happy sad "6/=@,{@\)%!},,2=4*"non-prime">
 
-Code-Golf: What is the shortest program that compiles and crashes?
-*
-
 Sierpinski's Triangle
 2
 3

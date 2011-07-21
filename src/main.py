@@ -40,6 +40,7 @@ tokmap = {"~":"bitwise",
           ";":"drop",
           "<":"lessert",
           ">":"greatert",
+          ":":"sett",
           
           "do":"doo",
           "p":"pputs"
@@ -85,15 +86,6 @@ def _quote(a):
     return ('s', t)
 
 def funcs():
-    def i_bitwise(a): return ('i', ~a[0][1])
-    def s_bitwise(a): raise ValueError("Unimplemented.")
-    def b_bitwise(a): raise ValueError("Unimplemented.")
-    def a_bitwise(a): return a
-
-    def i_dollar(a): raise ValueError("Unimplemented.")
-    def a_dollar(a): raise ValueError("Unimplemented.")
-    def b_dollar(a): raise ValueError("Unimplemented.")
-
     def i_i_plus(a,b): return ('i', a+b)
     def a_a_plus(a,b): return ('a', b+a)
     def b_b_plus(a,b): return ('b', b+a)
@@ -144,6 +136,15 @@ def funcs():
     def i_i_greatert(a,b): return ('i', 0 if a>b else 1)
     def a_i_greatert(a,b): return ('a', [i for i in b if i[1]>=a])
 
+    def i_bitwise(a): return ('i', ~a[0][1])
+    def s_bitwise(a): raise ValueError("Unimplemented.")
+    def b_bitwise(a): raise ValueError("Unimplemented.")
+    def a_bitwise(a): return a
+
+    def i_dollar(a): raise ValueError("Unimplemented.")
+    def a_dollar(a): raise ValueError("Unimplemented.")
+    def b_dollar(a): raise ValueError("Unimplemented.")
+
     def i_comma(a): return ('a', [('i', x) for x in range(a)])
     def i_inc(a): return ('i', a+1)
     def i_dec(a): return ('i', a-1)
@@ -159,6 +160,8 @@ def funcs():
     def none(): pass
     def bracko(): return ('w','[')
     def pputs(): print quote()[1]
+    
+    def sett(): return ('w',':')
 
     # -- functions that needs full stack
     def b_doo(a,s): 
@@ -193,9 +196,16 @@ def exec_ast(c, st):
         i = c.pop()
         if i[0] == "w":
             # operator
-            tm = tokmap[i[1]]
-            ks = words[tm].keys()
-
+            if i[1] in tokmap:
+                # found token in wordlist
+                tm = tokmap[i[1]]
+                ks = words[tm].keys()
+            elif st[-1][1] == ':':
+                # variable definition
+                words[i[1]]={'':(lambda: st[-2][1])}
+            else:
+                raise ValueError("Function not found:"+repr(i[1]))
+                
             mm = False
             if ks[0] != '':
                 for k in ks:
@@ -229,9 +239,7 @@ def exec_ast(c, st):
                 if tm in stackwords: sp.append(st)
                 else:
                     for _ in range(wl): sp.append(st.pop())
-                
-                
-                    
+
                 logging.debug("exec:"+tm+repr(sp)+repr(st))    
                 r = words[tm][''](*sp)
 
@@ -239,15 +247,13 @@ def exec_ast(c, st):
                     if type(r)==type([]): st.extend(r)
                     else: st.append(r)
                     logging.debug("a:"+repr(r))
-
         else:
             # not a word, just add to stack
             st.append(i)
     return st[:]
       
 def run_tests():
-    tests = [
-             ("""3 2.""","3 2 2"),
+    tests = [("""3 2.""","3 2 2"),
              ("""[3 2].[5]""","[3 2] [3 2] [5]"),
              ("""1 2 3@""","2 3 1"),
              ("""1 2\\""","2 1"),
@@ -267,18 +273,16 @@ def run_tests():
              ("""5{1-..}do""","4 3 2 1 0 0"),
              ("""2706 410{.@\%.}do;""","82"),
              ("""5 2,~{.@+.100<}do""","5 89 144"),
-             ("""5,{1+}%{*}*""","120")
-             
-             ]
+             ("""5,{1+}%{*}*""","120")]
     
     for it in tests:
         try:
             stack = []
             res = _quote(exec_ast(interpret(it[0]), stack))[1]
-            if it[1]==res: print "SUCC:",it[0],"=>",res
+            if it[1]==res: pass #print "SUCC:",it[0],"=>",res
             else: print "FAIL:",it[0],"=>",res
         except a:
             print "FAIL:",it[0],it[1]
 
-run_tests()           
-#print exec_ast(interpret("""2706 410{.@\%.}do;"""), [])
+#run_tests()           
+print exec_ast(interpret("""5:B;B"""), [])
