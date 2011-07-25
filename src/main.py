@@ -78,6 +78,7 @@ class Interpreter(object):
         self.stack = st # determine currently active stack
         logging.debug("exec_ast(): %s %s" % (self._quote(c[::-1])[0][1], st))
         while c:
+            # read input, one AST tuple at a time
             i = c.pop()
             if i[0] == "w":
                 # operator
@@ -198,11 +199,24 @@ class Interpreter(object):
         self.add_word('<', 'ai', 2)(lambda a,b: [('a', [i for i in b[1] if i[1]<a[1]])])
         self.add_word('>', 'ii', 2)(lambda a,b: [('i', 0 if a[1]>b[1] else 1)])
         self.add_word('>', 'ai', 2)(lambda a,b: [('a', [i for i in b[1] if i[1]>=a[1]])])
+
+        self.add_word('=', 'ii', 2)(lambda a,b: [('i', 1 if a[1]==b[1] else 0)])      
+        self.add_word('=', 'ss', 2)(lambda a,b: [('i', 1 if a[1]==b[1] else 0)])
+        
+        @self.add_word('=', 'ai', 2)
+        def a_i_is(a,b):
+            if abs(a[1])<len(b[1]): return [b[1][a[1]]]
+            
+        @self.add_word('=', 'bi', 2)
+        def b_i_is(a,b):
+            if abs(a[1])<len(b[1]): return [b[1][a[1]]]
+
         self.add_word('~', 'i', 1)(lambda a: [('i', ~a[1])])
         self.add_word('~', 's', 1)(lambda a: self.exec_ast(self.interpret(a[1]), []))
         self.add_word('~', 'b', 1)(lambda a: self.exec_ast(a[1][::-1], []))
         self.add_word('~', 'a', 1)(lambda a: a[1])
         self.add_word(',', 'i', 1)(lambda a: [('a', [('i', x) for x in range(a[1])])])
+        self.add_word(',', 'a', 1)(lambda a: [('i', len(a[1]))])
         self.add_word(')', 'i', 1)(lambda a: [('i', a[1]+1)])
         self.add_word('(', 'i', 1)(lambda a: [('i', a[1]-1)])
         self.add_word('!', 'i', 1)(lambda a: [('i',1-a[1])])
@@ -221,7 +235,7 @@ class Interpreter(object):
             self.stack.append(('a', l[::-1]))  
         
         @self.add_word('p', '', 1)
-        def pputs(): print self._quote()[0][1]
+        def pputs(a): print self._quote(a[1])[0][1]
         
         self.add_word(' ', '', 0)(lambda: None)
         self.add_word(':', '', 0)(lambda: [('w',':')])
@@ -245,7 +259,7 @@ class Interpreter(object):
         return not self._false(a)
     
     def _quote(self, a):
-        logging.debug(a)
+        logging.debug("quote:"+repr(a))
         def ww(i):
             if i[0] == 'i': return repr(i[1])
             if i[0] == 's': return i[1] #'\"' + i[1] + '\"'
@@ -259,12 +273,11 @@ class Interpreter(object):
     def _coerce(self,a,b):
         def _raise(a):
             if a[0] == 'i': return ('a', [a])
-            if a[0] == 'a': return ('s', str(a[1]))
-            if a[0] == 's': return ('b', [a]+[('w',' ')])
+            if a[0] == 'a': return ('s', ' '.join([repr(x[1]) for x in a[1]]))
+            if a[0] == 's': return ('b', [a])
         
         order = {'i':0,'a':1,'s':2,'b':3}
-        
-        logging.debug("%s %s" % (a,b))
+        logging.debug("coerce: %s %s" % (a,b))
     
         while a[0] != b[0]:
             if   order[a[0]] > order[b[0]]: b = _raise(b)
@@ -342,7 +355,7 @@ def run_tests():
               ("""10,""","""[0 1 2 3 4 5 6 7 8 9]"""),
               ("""10,,""","""10"""),
               ("""10,{3%},""","""[1 2 4 5 7 8]"""),
-              ("""1 2 3""","""1 2 3 3"""),
+              ("""1 2 3.""","""1 2 3 3"""),
               ("""2 8?""","""256"""),
               ("""5 [4 3 5 1] ?""","""2"""),
               ("""[1 2 3 4 5 6] {.* 20>} ?""","""5"""),
