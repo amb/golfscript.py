@@ -5,15 +5,17 @@ logging.basicConfig(level=logging.INFO)
 
 class Word(object):
     def __init__(self, function, name, types, inputs):
-        if name == '': raise ValueError("Invalid name")
+        if name == '': 
+            raise ValueError("Invalid name.")
         if len(types) > 0 and len(types) != inputs: 
-            raise ValueError("Types and inputs don't match")
+            raise ValueError("Type definitino does not match input.")
+        
         self.name = name
         self.function = function
         self.types = types  
         self.inputs = inputs
-
-class Interpreter(object):
+        
+class Parser(object):
     def __init__(self):
         self.lex = re.compile("""([a-zA-Z_][a-zA-Z0-9_]*)|"""
                               """('(?:\\.|[^'])*'?)|"""
@@ -21,13 +23,10 @@ class Interpreter(object):
                               """(-?[0-9]+)|"""
                               """(#[^\n\r]*)|(.)""", re.M)
         self.noop   = lambda x: x
-        self.lexems = ["w","s","s","i","comment","w"]
-        self.conv   = [self.noop,eval,eval,int,self.noop,self.noop]
+        self.lexems = ["w",      "s", "s", "i","comment","w"]
+        self.conv   = [self.noop,eval,eval,int,self.noop,self.noop]      
 
-        self.words = {}
-        self.construct_language()
-        
-    def interpret(self, prg):
+    def do(self, prg):
         c=[[(self.lexems[i],self.conv[i](j)) 
             for i,j in enumerate(x) if j != ''][0] 
             for x in self.lex.findall(prg)][::-1]
@@ -36,18 +35,30 @@ class Interpreter(object):
             s = []
             while True:
                 i = c.pop()
-                if    i[1] == '}': return ("b",s)
-                elif  i[1] == '{': s.append(recurse_blocks(inp))
-                else:              s.append(i)
+                if i[1] == '}': 
+                    return ("b",s)
+                elif i[1] == '{': 
+                    s.append(recurse_blocks(inp))
+                else:              
+                    s.append(i)
             raise ValueError("Blocks don't match.")
         code = []
         while c:
             i = c.pop()
-            if   i[1] == '{': code.append(recurse_blocks(c))
-            elif i[1] == '}': raise ValueError("Blocks don't match.")
-            else:             code.append(i)
-        return code[::-1]
+            if i[1] == '{': 
+                code.append(recurse_blocks(c))
+            elif i[1] == '}': 
+                raise ValueError("Blocks don't match.")
+            else:             
+                code.append(i)
+        return code
 
+class Interpreter(object):
+    def __init__(self):
+        self.parser = Parser()
+        self.words = {}
+        self.construct_language()
+        
     def exec_ast(self, c, st):
         def try_run(tm,ks):
             logging.debug("try_run: %s %s %s" % (tm,ks,st[-2:]))
@@ -60,61 +71,57 @@ class Interpreter(object):
                         return True
                 else:
                     raise ValueError("Stack underflow. ",st)
-            return False
     
         def ex_func(tm,t):
             logging.debug("exec: %s %s %s" % (tm,t,st))   
             sp = []
             for _ in range(self.words[tm][t].inputs): sp.append(st.pop())
             r = self.words[tm][t].function(*sp)
-            if r: st.extend(r)
+            if r: 
+                st.extend(r)
             
         def get_types(i):
             return ''.join([x[0] for x in st[-i:]])
+        
+        def do_op(op):
+            if op in self.words:
+                # found token in wordlist
+                ks = self.words[op].keys()
+                if ks[0]: # word has typed parameters
+                    if not try_run(op,ks): 
+                        # no match found, try and coerce the types to fit
+                        if op not in "+-|&^*": # only for these ops
+                            raise ValueError("False coerce: %s %s" % (op,ks)) 
+                        st[-1],st[-2] = self._coerce(st[-1],st[-2])
+                        ex_func(op,get_types(2))
+                else: # words with no types
+                    ex_func(op,'')
+                    
+            elif st[-1][1] == ':':
+                # variable definition
+                st.pop()
+                x = st[-1]
+                f = (lambda: [x])
+                self.words[op] = {'':Word(f,op,'',0)}
+                logging.debug("set: %s %s" % (op,st[-1]))
+            else:
+                raise ValueError("Function not found: %s" % (i[1]))            
         
         # FIXME: stack management might not work properly because
         # if we return from lexical scope, self.stack is still
         # the previous values
         self.stack = st # determine currently active stack
-        logging.debug("exec_ast(): %s %s" % (self._quote(c[::-1])[0][1], st))
-        while c:
-            # read input, one AST tuple at a time
-            i = c.pop()
+        logging.debug("exec_ast(): %s %s" % (self._quote(c)[0][1], st))
+        
+        for i in c:
             if i[0] == "w":
-                # operator
-                if i[1] in self.words:
-                    # found token in wordlist
-                    tm = i[1]
-                    ks = self.words[tm].keys()
-                    
-                    if ks[0] != '': # word has typed parameters
-                        if not try_run(tm,ks): 
-                            # no match found, try and coerce the types to fit
-                            #if tm not in "+-|&^": # only for these ops
-                            #    raise ValueError("False coerce") # else error
-                            st[-1],st[-2] = self._coerce(st[-1],st[-2])
-                            ex_func(tm,get_types(2))
-                    else:
-                        # words with no types
-                        ex_func(tm,'')
-                        
-                elif st[-1][1] == ':':
-                    # variable definition
-                    st.pop()
-                    x = st[-1]
-                    f = (lambda: [x])
-                    self.words[i[1]] = {'':Word(f,i[1],'',0)}
-                    logging.debug("set: %s %s" % (i[1],st[-1]))
-                else:
-                    raise ValueError("Function not found: %s" % (i[1]))
-
+                do_op(i[1])
             else:
-                # not a word, just add to stack
                 st.append(i)
         return st
     
     def run(self, p):
-        return self.exec_ast(self.interpret(p), [])
+        return self.exec_ast(self.parser.do(p), [])
     
     def add_word(self, n, t, inp):
         def wrap(f):
@@ -129,19 +136,22 @@ class Interpreter(object):
         self.add_word('+', 'ii', 2)(lambda a,b: [('i', a[1]+b[1])])
         self.add_word('+', 'aa', 2)(lambda a,b: [('a', b[1]+a[1])])
         self.add_word('+', 'bb', 2)(lambda a,b: [('b', b[1]+a[1])])
+        
         self.add_word('-', 'ii', 2)(lambda a,b: [('i', b[1]-a[1])])
         self.add_word('-', 'aa', 2)(lambda a,b: [('a', [x for x in b[1] if x not in a[1]])])
+        
         self.add_word('*', 'ii', 2)(lambda a,b: [('i', a[1]*b[1])])
         self.add_word('*', 'bi', 2)(lambda a,b: [('i', b[1])])
-        self.add_word('*', 'ai', 2)(lambda a,b: [('i', b[1])])
+        self.add_word('*', 'ai', 2)(lambda a,b: [('a', b[1]*a[1])])
         self.add_word('*', 'aa', 2)(lambda a,b: [('a', a[1])])
         self.add_word('*', 'ss', 2)(lambda a,b: [('s', a[1])])
+        self.add_word('*', 'is', 2)(lambda a,b: [('s', b[1]*a[1])])
         
         @self.add_word('*', 'ab', 2)
         def a_b_mul(a,b):
             while len(b[1])>1:
                 i,j = b[1].pop(),b[1].pop()
-                b[1].append(self.exec_ast(a[1][::-1]+[i]+[j], [])[0])
+                b[1].append(self.exec_ast([j]+[i]+a[1], [])[0])
             return b[1]
     
         @self.add_word('/', 'ii', 2)
@@ -162,6 +172,7 @@ class Interpreter(object):
         @self.add_word('/', 'ss', 2)
         def s_s_each(a,b): return [('s', b[1])]
     
+    
         @self.add_word('%', 'ii', 2)
         def i_i_mod(a,b): return [('i', b[1]%a[1])]
         
@@ -176,23 +187,24 @@ class Interpreter(object):
             x = []
             for i in b[1]:
                 cm = [i]+a[1]
-                x.append(self.exec_ast(cm[::-1], [])[0])
+                x.append(self.exec_ast(cm, [])[0])
             return [('a', x)]
     
-        @self.add_word('?', 'ii', 2)
-        def i_i_poww(a,b): return [('i', b[1]**a[1])]
+        self.add_word('?', 'ii', 2)(lambda a,b: [('i', b[1]**a[1])])
         
         @self.add_word('?', 'ia', 2)
         def i_a_poww(a,b):
             for i,j in enumerate(b[1]): 
-                if a[1] == j[0]: return [i]
+                if a[1] == j[0]: 
+                    return [i]
             return [('i', -1)]
         
         @self.add_word('?', 'ab', 2)
         def a_b_poww(a,b):
             for i in b[1]:
-                r = self.exec_ast(a[1][::-1]+[i], [])
-                if r[0] == ('i', 1): return [i]
+                r = self.exec_ast([i]+a[1], [])
+                if r[0] == ('i', 1): 
+                    return [i]
                 
                 
         self.add_word('<', 'ii', 2)(lambda a,b: [('i', 0 if a[1]<b[1] else 1)])
@@ -202,21 +214,17 @@ class Interpreter(object):
 
         self.add_word('=', 'ii', 2)(lambda a,b: [('i', 1 if a[1]==b[1] else 0)])      
         self.add_word('=', 'ss', 2)(lambda a,b: [('i', 1 if a[1]==b[1] else 0)])
-        
-        @self.add_word('=', 'ai', 2)
-        def a_i_is(a,b):
-            if abs(a[1])<len(b[1]): return [b[1][a[1]]]
-            
-        @self.add_word('=', 'bi', 2)
-        def b_i_is(a,b):
-            if abs(a[1])<len(b[1]): return [b[1][a[1]]]
-
+        self.add_word('=', 'ai', 2)(lambda a,b: [b[1][a[1]]] if abs(a[1])<len(b[1]) else None)
+        self.add_word('=', 'bi', 2)(lambda a,b: [b[1][a[1]]] if abs(a[1])<len(b[1]) else None)
+ 
         self.add_word('~', 'i', 1)(lambda a: [('i', ~a[1])])
-        self.add_word('~', 's', 1)(lambda a: self.exec_ast(self.interpret(a[1]), []))
-        self.add_word('~', 'b', 1)(lambda a: self.exec_ast(a[1][::-1], []))
+        self.add_word('~', 's', 1)(lambda a: self.exec_ast(self.parser.do(a[1]), []))
+        self.add_word('~', 'b', 1)(lambda a: self.exec_ast(a[1], []))
         self.add_word('~', 'a', 1)(lambda a: a[1])
+        
         self.add_word(',', 'i', 1)(lambda a: [('a', [('i', x) for x in range(a[1])])])
         self.add_word(',', 'a', 1)(lambda a: [('i', len(a[1]))])
+        
         self.add_word(')', 'i', 1)(lambda a: [('i', a[1]+1)])
         self.add_word('(', 'i', 1)(lambda a: [('i', a[1]-1)])
         self.add_word('!', 'i', 1)(lambda a: [('i',1-a[1])])
@@ -230,8 +238,10 @@ class Interpreter(object):
         @self.add_word(']', '', 0)
         def bracke():        
             l = []
-            while self.stack and self.stack[-1][1] != '[': l.append(self.stack.pop())
-            if self.stack and self.stack[-1][1] == '[': self.stack.pop()
+            while self.stack and self.stack[-1][1] != '[': 
+                l.append(self.stack.pop())
+            if self.stack and self.stack[-1][1] == '[': 
+                self.stack.pop()
             self.stack.append(('a', l[::-1]))  
         
         @self.add_word('p', '', 1)
@@ -243,8 +253,9 @@ class Interpreter(object):
         @self.add_word('do', 'b', 1)
         def b_doo(a): 
             while True:
-                self.exec_ast(a[1][::-1], self.stack)
-                if not self._true(self.stack.pop()): break
+                self.exec_ast(a[1], self.stack)
+                if not self._true(self.stack.pop()): 
+                    break
 
         self.add_word('$', 'i', 1)(lambda a: [self.stack[-(a[1]+1)]])
         self.add_word('$', 'a', 1)(lambda a: ('a', a[1].sort()))
@@ -252,6 +263,7 @@ class Interpreter(object):
         self.add_word('$', 'b', 1)(lambda a: [('b', [])])
 
     # 0 [] "" {} = false, everything else = true
+    
     def _false(self, a):
         return a == ('i', 0) or a == ('a', []) or a == ('s', '') or a == ('b', [])
     
@@ -260,14 +272,19 @@ class Interpreter(object):
     
     def _quote(self, a):
         logging.debug("quote:"+repr(a))
+        
         def ww(i):
             if i[0] == 'i': return repr(i[1])
-            if i[0] == 's': return i[1] #'\"' + i[1] + '\"'
+            if i[0] == 's': return '"' + i[1] + '"'
             if i[0] == 'w': return i[1]
             if i[0] == 'a': return "[" + ' '.join([ww(x) for x in i[1]]) + "]"
             if i[0] == 'b': return '{' + ''.join([ww(x) for x in i[1]]) + '}'
-        if   type(a) == type([]): t = ' '.join([ww(x) for x in a])
-        elif type(a) == type(()): t = ww(a)
+            
+        if isinstance(a, list): 
+            t = ' '.join([ww(x) for x in a])
+        elif isinstance(a, tuple): 
+            t = ww(a)
+            
         return [('s', t)]
 
     def _coerce(self,a,b):
@@ -280,8 +297,10 @@ class Interpreter(object):
         logging.debug("coerce: %s %s" % (a,b))
     
         while a[0] != b[0]:
-            if   order[a[0]] > order[b[0]]: b = _raise(b)
-            elif order[b[0]] > order[a[0]]: a = _raise(a)
+            if order[a[0]] > order[b[0]]: 
+                b = _raise(b)
+            elif order[b[0]] > order[a[0]]: 
+                a = _raise(a)
         
         return a,b
  
@@ -290,9 +309,9 @@ def run_tests():
               (""""1 2+"~""","""3"""),
               ("""{1 2+}~""","""3"""),
               ("""[1 2 3]~""","""1 2 3"""),
-              ("""1`""",""" "1" """),
+              ("""1`""",'"1"'),
               ("""[1 [2] 'asdf']`""",' \"[1 [2] \\\"asdf\\\"]\"'),
-              (""" "1"`""",""" "\"1\"" """),
+              (""" "1"`""",'""1""'),
               ("""{1}""",""" "{1}" """),
               ("""1 2 3 4 @""","""1 3 4 2"""),
               ("""1 2 3 4 5  1$""","""1 2 3 4 5 4"""),
@@ -308,7 +327,7 @@ def run_tests():
               ("""2 4*""","""8"""),
               ("""2 {2*} 5*""","""64"""),
               ("""[1 2 3]2*""","""[1 2 3 1 2 3]"""),
-              ("""3'asdf'*""",""" "asdfasdfasdf" """),
+              ("""3'asdf'*""",'"asdfasdfasdf"'),
               ("""[1 2 3]','*""",""" "1,2,3" """),
               ("""[1 2 3][4]*""","""[1 4 2 4 3]"""),
               ("""'asdf'' '*""",""" "a s d f" """),
@@ -397,8 +416,10 @@ def run_tests():
         #print it
         #try:
         res = ntp._quote(ntp.run(it[0]))[0][1]
-        if it[1]==res: print "SUCC:",it[0],"=>",res
-        else: print "FAIL:",it[0],"=>",res," | ",it[1]
+        if it[1]==res: 
+            print "SUCC:",it[0],"=>",res
+        else: 
+            print "FAIL:",it[0],"=>",res," | ",it[1]
         ntp.stack = []
 
 run_tests()           
