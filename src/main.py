@@ -1,20 +1,32 @@
 import re, logging
-from time import sleep
+#import pyparsing as pyp
+#from time import sleep
 
-logging.basicConfig(level=logging.INFO)
+class Enum(object):
+    def __init__(self, *names):
+        self.names = names
+        for i, name in enumerate(names):
+            setattr(self, name, i)
 
 class Word(object):
     def __init__(self, function, name, types, inputs):
         if name == '': 
             raise ValueError("Invalid name.")
-        if len(types) > 0 and len(types) != inputs: 
-            raise ValueError("Type definitino does not match input.")
         
         self.name = name
         self.function = function
         self.types = types  
         self.inputs = inputs
+ 
+class Stackvalue(object):
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
         
+    def __getitem__(self, i):
+        if i == 0: return self.name
+        if i == 1: return self.value
+    
 class Parser(object):
     def __init__(self):
         self.lex = re.compile("""([a-zA-Z_][a-zA-Z0-9_]*)|"""
@@ -90,8 +102,8 @@ class Interpreter(object):
                 if ks[0]: # word has typed parameters
                     if not try_run(op,ks): 
                         # no match found, try and coerce the types to fit
-                        if op not in "+-|&^*": # only for these ops
-                            raise ValueError("False coerce: %s %s" % (op,ks)) 
+                        #if op not in "+-|&^": # only for these ops
+                        #    raise ValueError("False coerce: %s %s" % (op,ks)) 
                         st[-1],st[-2] = self._coerce(st[-1],st[-2])
                         ex_func(op,get_types(2))
                 else: # words with no types
@@ -135,16 +147,29 @@ class Interpreter(object):
     def construct_language(self):
         self.add_word('+', 'ii', 2)(lambda a,b: [('i', a[1]+b[1])])
         self.add_word('+', 'aa', 2)(lambda a,b: [('a', b[1]+a[1])])
-        self.add_word('+', 'bb', 2)(lambda a,b: [('b', b[1]+a[1])])
+        self.add_word('+', 'bb', 2)(lambda a,b: [('b', b[1]+[('w',' ')]+a[1])])
         
         self.add_word('-', 'ii', 2)(lambda a,b: [('i', b[1]-a[1])])
         self.add_word('-', 'aa', 2)(lambda a,b: [('a', [x for x in b[1] if x not in a[1]])])
         
         self.add_word('*', 'ii', 2)(lambda a,b: [('i', a[1]*b[1])])
-        self.add_word('*', 'bi', 2)(lambda a,b: [('i', b[1])])
+        
+        @self.add_word('*', 'bi', 2)
+        def b_i_mul(a,b):
+            for _ in range(a[1]):
+                self.exec_ast(b[1],self.stack)
+
         self.add_word('*', 'ai', 2)(lambda a,b: [('a', b[1]*a[1])])
-        self.add_word('*', 'aa', 2)(lambda a,b: [('a', a[1])])
-        self.add_word('*', 'ss', 2)(lambda a,b: [('s', a[1])])
+        
+        @self.add_word('*', 'aa', 2)
+        def a_a_mul(a,b):
+            c = []
+            for x in range(len(b[1])-1):
+                c.extend([b[1][x]]+a[1])
+            return [('a',c+[b[1][-1]])]
+                
+        
+        self.add_word('*', 'ss', 2)(lambda a,b: [('s', a[1].join(list(b[1])))])
         self.add_word('*', 'is', 2)(lambda a,b: [('s', b[1]*a[1])])
         
         @self.add_word('*', 'ab', 2)
@@ -158,19 +183,38 @@ class Interpreter(object):
         def i_i_each(a,b): return [('i', b[1]/a[1])]
         
         @self.add_word('/', 'aa', 2)
-        def a_a_each(a,b): return [('a', b[1])]
+        def a_a_each(a,b): 
+            suba, maia = a[1], b[1]
+            x,y,i = [],[],0
+            while i < len(maia):
+                if maia[i] == suba[0]:
+                    if maia[i:i+len(suba)] == suba: 
+                        i+=len(suba)
+                        y.append(('a',x))
+                        x = []
+                        continue
+                x.append(maia[i])
+                i+=1
+                
+            if x: y.append(('a',x))  
+            return [('a', y)]
         
         @self.add_word('/', 'ai', 2)
-        def a_i_each(a,b): return [('i', b[1])]
+        def a_i_each(a,b): 
+            return [('a', [('a',b[1][x:a[1]+x]) for x in range(0,len(b[1]),a[1])])]
         
         @self.add_word('/', 'bb', 2)
-        def b_b_each(a,b): return [('b', b[1])]
+        def b_b_each(a,b): 
+            c = [('b',a[1]+[('w','.')]+b[1])]+[('w','do')]
+            logging.debug(self._quote(c)[0][1])
+            return self.exec_ast(c, self.stack)
         
         @self.add_word('/', 'ab', 2)
-        def a_b_each(a,b): return [('b', b[1])]
+        def a_b_each(a,b): 
+            return self.exec_ast([('w','%'),('w','~')], [b,a]+self.stack)
         
         @self.add_word('/', 'ss', 2)
-        def s_s_each(a,b): return [('s', b[1])]
+        def s_s_each(a,b): return [('a', [('s', x) for x in b[1].split(a[1])] )]
     
     
         @self.add_word('%', 'ii', 2)
@@ -186,17 +230,16 @@ class Interpreter(object):
         def a_b_mod(a,b):
             x = []
             for i in b[1]:
-                cm = [i]+a[1]
-                x.append(self.exec_ast(cm, [])[0])
+                x.extend(self.exec_ast([i]+a[1], []))
             return [('a', x)]
     
         self.add_word('?', 'ii', 2)(lambda a,b: [('i', b[1]**a[1])])
         
         @self.add_word('?', 'ia', 2)
         def i_a_poww(a,b):
-            for i,j in enumerate(b[1]): 
-                if a[1] == j[0]: 
-                    return [i]
+            for i,j in enumerate(a[1]): 
+                if b[1] == j[1]: 
+                    return [('i', i)]
             return [('i', -1)]
         
         @self.add_word('?', 'ab', 2)
@@ -208,9 +251,9 @@ class Interpreter(object):
                 
                 
         self.add_word('<', 'ii', 2)(lambda a,b: [('i', 0 if a[1]<b[1] else 1)])
-        self.add_word('<', 'ai', 2)(lambda a,b: [('a', [i for i in b[1] if i[1]<a[1]])])
+        self.add_word('<', 'ai', 2)(lambda a,b: [('a', [i for i in b[1] if i[1]<=a[1]])])
         self.add_word('>', 'ii', 2)(lambda a,b: [('i', 0 if a[1]>b[1] else 1)])
-        self.add_word('>', 'ai', 2)(lambda a,b: [('a', [i for i in b[1] if i[1]>=a[1]])])
+        self.add_word('>', 'ai', 2)(lambda a,b: [('a', [i for i in b[1] if i[1]>a[1]])])
 
         self.add_word('=', 'ii', 2)(lambda a,b: [('i', 1 if a[1]==b[1] else 0)])      
         self.add_word('=', 'ss', 2)(lambda a,b: [('i', 1 if a[1]==b[1] else 0)])
@@ -226,13 +269,17 @@ class Interpreter(object):
         self.add_word(',', 'a', 1)(lambda a: [('i', len(a[1]))])
         
         self.add_word(')', 'i', 1)(lambda a: [('i', a[1]+1)])
+        self.add_word(')', 'a', 1)(lambda a: [('a', a[1][:-1])]+[('i', a[1][-1][1])])
+        
         self.add_word('(', 'i', 1)(lambda a: [('i', a[1]-1)])
+        self.add_word('(', 'a', 1)(lambda a: [('a', a[1][1:])]+[('i', a[1][0][1])])
+        
         self.add_word('!', 'i', 1)(lambda a: [('i',1-a[1])])
         self.add_word('\\', '', 2)(lambda a,b: [a,b])
         self.add_word('.', '', 1)(lambda a: [a,a])
         self.add_word(';', '', 1)(lambda a: None)
         self.add_word('@', '', 3)(lambda a,b,c: [b,a,c])
-        self.add_word('`', '', 1)(lambda a: self._quote(a))
+        self.add_word('`', '', 1)(lambda a: self._quote([a]))
         self.add_word('[', '', 0)(lambda: [('w','[')])
 
         @self.add_word(']', '', 0)
@@ -258,10 +305,17 @@ class Interpreter(object):
                     break
 
         self.add_word('$', 'i', 1)(lambda a: [self.stack[-(a[1]+1)]])
-        self.add_word('$', 'a', 1)(lambda a: ('a', a[1].sort()))
+        self.add_word('$', 'a', 1)(lambda a: [('a', a[1].sort())])
         self.add_word('$', 's', 1)(lambda a: [('s', a[1])])
-        self.add_word('$', 'b', 1)(lambda a: [('b', [])])
-
+        self.add_word('$', 'ab', 2)(lambda a,b: [a])
+        
+        @self.add_word('if', '', 3)
+        def iff(a,b,c):
+            if self._true(c):
+                return [b]
+            else:
+                return [a]
+            
     # 0 [] "" {} = false, everything else = true
     
     def _false(self, a):
@@ -273,19 +327,16 @@ class Interpreter(object):
     def _quote(self, a):
         logging.debug("quote:"+repr(a))
         
+        def ss(i): return '\\"' if i == '"' else i # escape inner strings
+            
         def ww(i):
             if i[0] == 'i': return repr(i[1])
-            if i[0] == 's': return '"' + i[1] + '"'
+            if i[0] == 's': return '"' + ''.join(ss(t) for t in i[1]) + '"'
             if i[0] == 'w': return i[1]
             if i[0] == 'a': return "[" + ' '.join([ww(x) for x in i[1]]) + "]"
             if i[0] == 'b': return '{' + ''.join([ww(x) for x in i[1]]) + '}'
-            
-        if isinstance(a, list): 
-            t = ' '.join([ww(x) for x in a])
-        elif isinstance(a, tuple): 
-            t = ww(a)
-            
-        return [('s', t)]
+ 
+        return [('s', ' '.join([ww(x) for x in a]))]
 
     def _coerce(self,a,b):
         def _raise(a):
@@ -305,85 +356,94 @@ class Interpreter(object):
         return a,b
  
 def run_tests():
-    gs_com = [("""5~""","""-6"""),
-              (""""1 2+"~""","""3"""),
-              ("""{1 2+}~""","""3"""),
-              ("""[1 2 3]~""","""1 2 3"""),
-              ("""1`""",'"1"'),
-              ("""[1 [2] 'asdf']`""",' \"[1 [2] \\\"asdf\\\"]\"'),
-              (""" "1"`""",'""1""'),
-              ("""{1}""",""" "{1}" """),
-              ("""1 2 3 4 @""","""1 3 4 2"""),
-              ("""1 2 3 4 5  1$""","""1 2 3 4 5 4"""),
-              ("""'asdf'$""",""" "adfs" """),
-              ("""[5 4 3 1 2]{-1*}$""","""[5 4 3 2 1]"""),
-              ("""5 7+""","""12"""),
-              ("""'asdf'{1234}+""","""{asdf 1234}"""),
-              ("""[1 2 3][4 5]+""","""[1 2 3 4 5]"""),
-              ("""1 2-3+""","""1 -1"""),
-              ("""1 2 -3+""","""1 -1"""),
-              ("""1 2- 3+""","""2"""),
-              ("""[5 2 5 4 1 1][1 2]-""","""[5 5 4]"""),
-              ("""2 4*""","""8"""),
-              ("""2 {2*} 5*""","""64"""),
-              ("""[1 2 3]2*""","""[1 2 3 1 2 3]"""),
-              ("""3'asdf'*""",'"asdfasdfasdf"'),
-              ("""[1 2 3]','*""",""" "1,2,3" """),
-              ("""[1 2 3][4]*""","""[1 4 2 4 3]"""),
-              ("""'asdf'' '*""",""" "a s d f" """),
-              ("""[1 [2] [3 [4 [5]]]]'-'*""",""" "1-\002-\003\004\005" """),
-              ("""[1 [2] [3 [4 [5]]]][6 7]*""","""[1 6 7 2 6 7 3 [4 [5]]]"""),
-              ("""[1 2 3 4]{+}*""","""10"""),
-              #("""'asdf'{+}*""","""414"""),
-              ("""7 3 /""","""2"""),
-              ("""[1 2 3 4 2 3 5][2 3]/""","""[[1] [4] [5]]"""),
-              ("""'a s d f'' '/""","""["a" "s" "d" "f"]"""),
-              ("""[1 2 3 4 5] 2/""","""[[1 2] [3 4] [5]]"""),
-              ("""0 1 {100<} { .@+ } /""","""89 [1 1 2 3 5 8 13 21 34 55 89]"""),
-              ("""[1 2 3]{1+}/""","""2 3 4"""),
-              ("""7 3 %""","""1"""),
-              #("""'assdfs' 's'%""","""["a" "df"]"""),
-              #("""'assdfs' 's'/""","""["a" "" "df" ""]"""),
-              ("""[1 2 3 4 5] 2%""","""[1 3 5]"""),
-              ("""[1 2 3 4 5] -1%""","""[5 4 3 2 1]"""),
-              ("""[1 2 3]{.}%""","""[1 1 2 2 3 3]"""),
-              #("""5 3 |""","""7"""),
-              #("""[1 1 2 2][1 3]&""","""[1]"""),
-              #("""[1 1 2 2][1 3]^""","""[2 3]"""),
-              #("""'\n'""",""" "\\n" """),
-              #("""' \' '""",""" " ' " """),
-              #(""" "\n" """,""" "\n" """),
-              #(""" "\144" """,""" "d" """),
-              ("""1 2 [\]""","""[2 1]"""),
-              ('1 2 3',"""1 3 2"""),
-              ("""1:a a""","""1 1"""),
-              ("""1:O;O""","""1"""),
-              ("""1 2 3;""","""1 2"""),
-              ("""3 4 <""","""1"""),
-              #(""" "asdf" "asdg" <""","""1"""),
-              ("""[1 2 3] 2 <""","""[1 2]"""),
-              #("""{asdf} -1 <""","""{asd}"""),
-              ("""3 4 >""","""0"""),
-              #(""" "asdf" "asdg" >""","""0"""),
-              ("""[1 2 3] 2 >""","""[3]"""),
-              #("""{asdf} -1 >""","""{f}"""),
-              ("""3 4 =""","""0"""),
-              (""" "asdf" "asdg" =""","""0"""),
-              ("""[1 2 3] 2 =""","""3"""),
-              ("""{asdf} -1 =""","""102"""),
-              ("""10,""","""[0 1 2 3 4 5 6 7 8 9]"""),
-              ("""10,,""","""10"""),
-              ("""10,{3%},""","""[1 2 4 5 7 8]"""),
-              ("""1 2 3.""","""1 2 3 3"""),
-              ("""2 8?""","""256"""),
-              ("""5 [4 3 5 1] ?""","""2"""),
-              ("""[1 2 3 4 5 6] {.* 20>} ?""","""5"""),
-              ("""5(""","""4"""),
-              ("""[1 2 3](""","""[2 3] 1"""),
-              ("""5)""","""6"""),
-              ("""[1 2 3])""","""[1 2] 3"""),
-              ("""1 2 3 if""","""2"""),
-              ("""0 2 {1.} if""","""1 1""")
+    gs_com = [('5~','-6'),
+              ('"1 2+"~','3'),
+              ('{1 2+}~','3'),
+              ('"\\144"','"d"'),
+              ('[1 2 3]~','1 2 3'),
+              ('1`','"1"'),
+              ('[1 [2] "asdf"]`','"[1 [2] \\"asdf\\"]"'),
+              (' "1"`','"\\"1\\""'),
+              ('{1}`','"{1}"'),
+              ('1 2 3 4 @','1 3 4 2'),
+              ('1 2 3 4 5  1$','1 2 3 4 5 4'),
+              ('"asdf"$',' "adfs" '),
+              ('[5 4 3 1 2]{-1*}$','[5 4 3 2 1]'),
+              ('5 7+','12'),
+              ('"asdf"{1234}+','{asdf 1234}'),
+              ('[1 2 3][4 5]+','[1 2 3 4 5]'),
+              ('1 2-3+','1 -1'),
+              ('1 2 -3+','1 -1'),
+              ('1 2- 3+','2'),
+              ('[5 2 5 4 1 1][1 2]-','[5 5 4]'),
+              ('2 4*','8'),
+              ('2 {2*} 5*','64'),
+              ('[1 2 3]2*','[1 2 3 1 2 3]'),
+              ('3"asdf"*','"asdfasdfasdf"'),
+              ('[1 2 3]","*',' "1,2,3" '),
+              ('[1 2 3][4]*','[1 4 2 4 3]'),
+              ('"asdf"" "*','"a s d f"'),
+              ('[1 [2] [3 [4 [5]]]]"-"*',' "1-\002-\003\004\005" '),
+              ('[1 [2] [3 [4 [5]]]][6 7]*','[1 6 7 2 6 7 3 [4 [5]]]'),
+              ('[1 2 3 4]{+}*','10'),
+              #(''asdf'{+}*','414'),
+              ('7 3 /','2'),
+              ('[1 2 3 4 2 3 5][2 3]/','[[1] [4] [5]]'),
+              ('"a s d f"" "/','["a" "s" "d" "f"]'),
+              ('[1 2 3 4 5] 2/','[[1 2] [3 4] [5]]'),
+              ('0 1 {100<} { .@+ } /','89 [1 1 2 3 5 8 13 21 34 55 89]'),
+              ('[1 2 3]{1+}/','2 3 4'),
+              ('7 3 %','1'),
+              #(''assdfs' 's'%','["a" "df"]'),
+              #(''assdfs' 's'/','["a" "" "df" ""]'),
+              ('[1 2 3 4 5] 2%','[1 3 5]'),
+              ('[1 2 3 4 5] -1%','[5 4 3 2 1]'),
+              ('[1 2 3]{.}%','[1 1 2 2 3 3]'),
+              #('5 3 |','7'),
+              #('[1 1 2 2][1 3]&','[1]'),
+              #('[1 1 2 2][1 3]^','[2 3]'),
+              #(''\n'',' "\\n" '),
+              #('' \' '',' " ' " '),
+              #(' "\n" ',' "\n" '),
+              #(' "\144" ',' "d" '),
+              ('1 2 [\]','[2 1]'),
+              ('1 2 3\\','1 3 2'),
+              ('1:a a','1 1'),
+              ('1:O;O','1'),
+              ('1 2 3;','1 2'),
+              ('3 4 <','1'),
+              #(' "asdf" "asdg" <','1'),
+              ('[1 2 3] 2 <','[1 2]'),
+              #('{asdf} -1 <','{asd}'),
+              ('3 4 >','0'),
+              #(' "asdf" "asdg" >','0'),
+              ('[1 2 3] 2 >','[3]'),
+              #('{asdf} -1 >','{f}'),
+              ('3 4 =','0'),
+              (' "asdf" "asdg" =','0'),
+              ('[1 2 3] 2 =','3'),
+              ('{asdf} -1 =','102'),
+              ('10,','[0 1 2 3 4 5 6 7 8 9]'),
+              ('10,,','10'),
+              #('10,{3%},','[1 2 4 5 7 8]'),
+              ('1 2 3.','1 2 3 3'),
+              ('2 8?','256'),
+              ('5 [4 3 5 1] ?','2'),
+              ('[1 2 3 4 5 6] {.* 20>} ?','5'),
+              ('5(','4'),
+              ('[1 2 3](','[2 3] 1'),
+              ('5)','6'),
+              ('[1 2 3])','[1 2] 3'),
+              ('1 2 3 if','2'),
+              ('0 2 {1.} if','1 1'),
+              #('-2 abs','2'),
+              ('5{1-..}do','4 3 2 1 0 0'),
+              #('5{.}{1-.}while','4 3 2 1 0 0'),
+              #('[[1 2 3][4 5 6][7 8 9]]zip','[[1 4 7] [2 5 8] [3 6 9]]'),
+              #('["asdf""1234"]zip','["a1" "s2" "d3" "f4"]'),
+              #('[1 1 0] 2 base','6'),
+              #('6 2 base','[1 1 0]')
+              ('1 1+','2')
               ]
     tests = [("""3 2.""","3 2 2"),
              ("""[3 2].[5]""","[3 2] [3 2] [5]"),
@@ -407,6 +467,21 @@ def run_tests():
              ("""5 2,~{.@+.100<}do""","5 89 144"),
              ("""5,{1+}%{*}*""","120")]
     
+    quotetests = [
+                  ('{}','{}'),
+                  ('[]','[]'),
+                  ('""','""'),
+                  ('5','5'),
+                  ('{}`','"{}"'),
+                  ('[]`','"[]"'),
+                  ('""`','"\\"\\""'),
+                  ('5`','"5"'),
+                  ('[1 2 3]`','"[1 2 3]"'),
+                  ('[1 [2] 3]`','"[1 [2] 3]"'),
+                  ('[1 [2] 3 {.@+}]`','"[1 [2] 3 {.@+}]"'),
+                  ('[1 [2 "hei"] 3]`','"[1 [2 \\"hei\\"] 3]"'),
+                  ]
+    
     #program = """~:@.{0\`{15&.*+}/}*1=!"happy sad "6/=@,{@\)%!},,2=4*"non-prime">"""
     #program = """'asdf'{+}*"""
     #program = """99{n+~."+#,#6$DWOXB79Bd")base`1/10/~{~2${~1$+}%(;+~}%++=" is "\"."1$4$4-}do;;;"magic." """
@@ -422,5 +497,8 @@ def run_tests():
             print "FAIL:",it[0],"=>",res," | ",it[1]
         ntp.stack = []
 
+logging.basicConfig(level=logging.INFO)
+
 run_tests()           
-#print exec_ast(interpret("""5:B;B"""), [])
+#ntp = Interpreter()
+#print ntp._quote(ntp.exec_ast(ntp.parser.do("""[1 2 3]{1+}/"""), []))[0][1]
