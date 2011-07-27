@@ -10,13 +10,17 @@ integer, array, string, block >
           #        comment
           $ 1 or 2 stack ith, sort(by)
           + coerce add, concat
-          - coerce subtract, set diff
+          - coerce subtract, set diff      
+          | coerce bitwise/setwise or
+          & coerce bitwise/setwise and
+          ^ coerce bitwise/setwise xor          
           *  order mult, block execute times, array repeat, join, fold
           /  order div, split, split in groups of size, unfold, each
           %  order mod, map, every ith element, clean split
-          | coerce bitwise/setwise or
-          & coerce bitwise/setwise and
-          ^ coerce bitwise/setwise xor
+          <  order less than, elements less than index
+          >  order greater than, elements greater than or equal to index
+          =  order equal to, element at index
+          ?  order pow, index, find
         { }        blocks
           '        raw string
           "        escaped string
@@ -24,12 +28,9 @@ integer, array, string, block >
           \      2 swap 2
           :     1* assignment
           ;      1 pop
-          <  order less than, elements less than index
-          >  order greater than, elements greater than or equal to index
-          =  order equal to, element at index
+
           , 1 or 2 [*0...n], size, select
           .      1 dup
-          ?  order pow, index, find
           (      1 deincrement, uncons
           )      1 increment, right uncons
  and or xor      2 
