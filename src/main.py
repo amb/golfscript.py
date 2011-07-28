@@ -1,6 +1,4 @@
-import re, logging, time
-#import pyparsing as pyp
-
+import re, logging, time, cProfile
 
 class Enum(object):
     def __init__(self, *names):
@@ -18,7 +16,7 @@ class Word(object):
         self.types = types  
         self.inputs = inputs
  
-class Stackvalue(object):
+class StackValue(object):
     def __init__(self, name, value):
         self.name = name
         self.value = value
@@ -65,6 +63,14 @@ class Parser(object):
             else:             
                 code.append(i)
         return code
+    
+class FunctionProfile(object):
+    def __init__(self):
+        self.time = 0
+        self.calls = 1
+        
+    def __repr__(self):
+        return "calls:%10s\ttotal time:%.3f" % (self.calls, self.time)
 
 class Interpreter(object):
     def __init__(self):
@@ -90,16 +96,20 @@ class Interpreter(object):
         def ex_func(tm,t):
             ww = tm+t
             if ww in self.profile:
-                self.profile[ww] += 1
+                self.profile[ww].calls += 1
             else:
-                self.profile[ww] = 1
-            logging.debug("exec: %s %s stack: %s" % (tm,t,self.stack))   
+                self.profile[ww] = FunctionProfile()
+            logging.debug("exec: %s %s stack: %s" % (tm,t,self.stack))  
+            t1 = time.time() 
             sp = []
-            for _ in range(self.words[tm][t].inputs): sp.append(self.stack.pop())
+            for _ in range(self.words[tm][t].inputs): 
+                sp.append(self.stack.pop())
             logging.debug("afte: %s %s stack: %s" % (tm,t,self.stack))   
             r = self.words[tm][t].function(*sp)
             if r: 
                 self.stack.extend(r)
+            t2 = time.time()
+            self.profile[ww].time += t2-t1
             
         def get_types(i):
             return ''.join([x[0] for x in self.stack[-i:]])
@@ -126,10 +136,12 @@ class Interpreter(object):
                     if not try_run(op,ks): 
                         # no match found, try and coerce the types to fit
                         if op in "+-|&^": # only for these ops  
-                            self.stack[-1],self.stack[-2] = self._coerce(self.stack[-1],self.stack[-2])
+                            self.stack[-1],self.stack[-2] = \
+                                self._coerce(self.stack[-1],self.stack[-2])
                             ex_func(op,get_types(2))
                         else:
-                            raise ValueError("Word %s not found for types %s." % (op,get_types(2)))
+                            raise ValueError("Word %s not found for types %s." 
+                                             % (op,get_types(2)))
                 else: # words with no types
                     ex_func(op,'')
             else:
@@ -172,7 +184,8 @@ class Interpreter(object):
         self.add_word('+', 'bb', 2)(lambda a,b: [('b', b[1]+[('w',' ')]+a[1])])
         
         self.add_word('-', 'ii', 2)(lambda a,b: [('i', b[1]-a[1])])
-        self.add_word('-', 'aa', 2)(lambda a,b: [('a', [x for x in b[1] if x not in a[1]])])
+        self.add_word('-', 'aa', 2)(lambda a,b: [('a', [x for x in b[1] 
+                                                        if x not in a[1]])])
         
         self.add_word('*', 'ii', 2)(lambda a,b: [('i', a[1]*b[1])])
         
@@ -186,7 +199,7 @@ class Interpreter(object):
         def a_s_mul(a,b):
             x = [self._quote([c])[0][1] for c in b[1]]
             return [('s', a[1].join(x))]
-        
+    
         @self.add_word('*', 'aa', 2)
         def a_a_mul(a,b):
             c = []
@@ -226,7 +239,8 @@ class Interpreter(object):
         
         @self.add_word('/', 'ai', 2)
         def a_i_each(a,b): 
-            return [('a', [('a',b[1][x:a[1]+x]) for x in range(0,len(b[1]),a[1])])]
+            return [('a', [('a',b[1][x:a[1]+x]) 
+                           for x in range(0,len(b[1]),a[1])])]
         
         @self.add_word('/', 'bb', 2)
         def b_b_each(a,b): 
@@ -246,7 +260,7 @@ class Interpreter(object):
             return self.exec_ast([b,a]+[('w','%'),('w','~')])
         
         @self.add_word('/', 'ss', 2)
-        def s_s_each(a,b): return [('a', [('s', x) for x in b[1].split(a[1])] )]
+        def s_s_each(a,b): return [('a',[('s', x) for x in b[1].split(a[1])])]
     
     
         @self.add_word('%', 'ii', 2)
@@ -264,7 +278,6 @@ class Interpreter(object):
             for i in b[1]:
                 self.exec_ast([i]+a[1])
             self.exec_ast([('w', ']')])
-            #return [('a', x)]
     
         self.add_word('?', 'ii', 2)(lambda a,b: [('i', b[1]**a[1])])
         
@@ -358,7 +371,8 @@ class Interpreter(object):
     # 0 [] "" {} = false, everything else = true
     
     def _false(self, a):
-        return a == ('i', 0) or a == ('a', []) or a == ('s', '') or a == ('b', [])
+        return a == ('i', 0) or a == ('a', []) or \
+               a == ('s', '') or a == ('b', [])
     
     def _true(self, a):
         return not self._false(a)
@@ -444,6 +458,9 @@ def run_tests():
               ('[1 2 3 4 5] 2%','[1 3 5]'),
               ('[1 2 3 4 5] -1%','[5 4 3 2 1]'),
               ('[1 2 3]{.}%','[1 1 2 2 3 3]'),
+              
+              # TODO: Use set() for |&^ aa types
+              
               #('5 3 |','7'),
               #('[1 1 2 2][1 3]&','[1]'),
               #('[1 1 2 2][1 3]^','[2 3]'),
@@ -527,9 +544,11 @@ def run_tests():
                   ('[1 [2 "hei"] 3]`','"[1 [2 \\"hei\\"] 3]"'),
                   ]
     
-    #program = """~:@.{0\`{15&.*+}/}*1=!"happy sad "6/=@,{@\)%!},,2=4*"non-prime">"""
+    #program = """~:@.{0\`{15&.*+}/}*1=!"happy sad "6/"""
+    #  """=@,{@\)%!},,2=4*"non-prime">"""
     #program = """'asdf'{+}*"""
-    #program = """99{n+~."+#,#6$DWOXB79Bd")base`1/10/~{~2${~1$+}%(;+~}%++=" is "\"."1$4$4-}do;;;"magic." """
+    #program = """99{n+~."+#,#6$DWOXB79Bd")base`1/10/~{~2${~1$+}%(;+~}%""" 
+    #  """++=" is "\"."1$4$4-}do;;;"magic." """
     #program = """''6666,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""
     ntp = Interpreter()
     for it in gs_com:
@@ -546,29 +565,28 @@ logging.basicConfig(level=logging.INFO)
 
 #run_tests()           
 ntp = Interpreter()
-#print ntp._quote(ntp.exec_ast(ntp.parser.do("""''66,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""), []))[0][1]
-#print ntp._quote(ntp.exec_ast(ntp.parser.do("""66,-2%{2+.2/@*\/9)499?2*+}*"""), []))[0][1]
-
-#print ntp._quote(ntp.exec_ast(ntp.parser.do(""" 7 9000 2?\/ 6+ 7000 2?\/ 6+ 5000 2?\/ 6+ 3000 2? 6+ 1000 2?  """), []))[0][1]
-program = """
+#"""''66,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""
+#"""66,-2%{2+.2/@*\/9)499?2*+}*"""
+#""" 7 9000 2?\/ 6+ 7000 2?\/ 6+ 5000 2?\/ 6+ 3000 2? 6+ 1000 2?  """
+program1 = """
 "duplicate n values top of the stack";
 {["{"2$("$}"4$"*"]{+}*\;~}:rg;
 
 "1 2 3 5 8 13 ...";
 ["2rg+..50<E@if~":E; 1 2 E~;];
-
-10 50?:A;
-A 2?:B;
-6 B*:B6;
-
-"count some digits of pi";
-66,{)}%2%B B6++{\A*2?B*\/B6+}*3 B*-
 """
 
-t1 = time.time()
-ntp.exec_ast(ntp.parser.do(program))
-t2 = time.time()
-print '%0.3f' % (t2-t1)
+program2 = """
+"count some digits of pi";
+200,{)}%2%700000000+{\\10000*2?100000000*\/600000000+}*300000000-
+"""
+#2000,{)}%2%B B6++{\A*2?B*\/B6+}*3 B*-
+
+#t1 = time.time()
+#cProfile.run('ntp.exec_ast(ntp.parser.do(program))')
+#t2 = time.time()
+#print '%0.3f' % (t2-t1)
+
 #\\tv\\/B6+
 #1 6 B*+\\A* 2? B*\\/
 #{[6 B*"+"3$ A*" 2?"B"*\/"]{+}*\;}:pip;
@@ -576,4 +594,7 @@ print '%0.3f' % (t2-t1)
 #{(}~..{0>}~ {{(}~..{0>}~ C @if}@if:C;
 #"\\.@.@+..50<E@if~":E; 1 2 E~;]
 #[1 B*" "30,-2%{pip}%{+}*" "3 B*"+"]{+}*~
+ntp.exec_ast(ntp.parser.do(program2))
 print ntp._quote(ntp.stack)[0][1]
+for it in sorted(ntp.profile.items(), key=(lambda x: x[1].time))[::-1]:
+    print it[0],"\t",it[1]
