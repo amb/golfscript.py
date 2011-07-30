@@ -46,22 +46,16 @@ class Parser(object):
             s = []
             while True:
                 i = c.pop()
-                if i == ('w','}'): 
-                    return ("b",s)
-                elif i == ('w','{'): 
-                    s.append(recurse_blocks(inp))
-                else:              
-                    s.append(i)
+                if i == ('w','}'):   return ("b",s)
+                elif i == ('w','{'): s.append(recurse_blocks(inp))
+                else:                s.append(i)
             raise ValueError("Blocks don't match.")
         code = []
         while c:
             i = c.pop()
-            if i == ('w','{'): 
-                code.append(recurse_blocks(c))
-            elif i == ('w','}'): 
-                raise ValueError("Blocks don't match.")
-            else:             
-                code.append(i)
+            if i == ('w','{'):   code.append(recurse_blocks(c))
+            elif i == ('w','}'): raise ValueError("Blocks don't match.")
+            else:                code.append(i)
         return code
     
 class FunctionProfile(object):
@@ -126,7 +120,7 @@ class Interpreter(object):
                 else:
                     logging.debug("created executable word")
                     f = (lambda: self.exec_ast(x[0][1]))
-                #self.words[op] = {'':Word(f,op,'',0)}
+                
                 self.add_word(op, '', 0)(f)
                 logging.debug("set: %s %s" % (op,self.stack[-1]))
             elif op in self.words:
@@ -147,13 +141,7 @@ class Interpreter(object):
             else:
                 raise ValueError("Function not found: %s" % (i[1]))            
         
-        # FIXME: stack management might not work properly because
-        # if we return from lexical scope, self.stack is still
-        # the previous values
-        #prevst = self.stack
-        #self.stack = st # determine currently active stack
         logging.debug("exec_ast(): %s %s" % (self._quote(c)[0][1], self.stack))
-        
         for i in c:
             if i[0] == "w":
                 do_op(i[1])
@@ -161,7 +149,7 @@ class Interpreter(object):
                 logging.debug("append: %s" % repr(i))
                 self.stack.append(i)
     
-    def run(self, p):
+    def compile(self, p):
         self.exec_ast(self.parser.do(p))
         return self.stack
     
@@ -177,7 +165,7 @@ class Interpreter(object):
             return f
         return lambda f: self._new_word(dbg(f),n,t,inp)
     
-    def construct_language(self):
+    def construct_language(self):        
         self.add_word('+', 'ii', 2)(lambda a,b: [('i', a[1]+b[1])])
         self.add_word('+', 'aa', 2)(lambda a,b: [('a', b[1]+a[1])])
         self.add_word('+', 'ss', 2)(lambda a,b: [('s', b[1]+a[1])])
@@ -318,6 +306,15 @@ class Interpreter(object):
         self.add_word(',', 'i', 1)(lambda a: [('a', [('i', x) for x in range(a[1])])])
         self.add_word(',', 'a', 1)(lambda a: [('i', len(a[1]))])
         
+        @self.add_word(',', 'ab', 2)
+        def a_b_comma(a,b):
+            self.stack.append(('w', '['))
+            for i in b[1]:
+                self.exec_ast([i]+a[1])
+                if self._true(self.stack.pop()):
+                    self.stack.append(i)
+            self.exec_ast([('w', ']')])
+        
         self.add_word(')', 'i', 1)(lambda a: [('i', a[1]+1)])
         self.add_word(')', 'a', 1)(lambda a: [('a', a[1][:-1])]+[('i', a[1][-1][1])])
         
@@ -361,13 +358,23 @@ class Interpreter(object):
         self.add_word('$', 's', 1)(lambda a: [('s', a[1])])
         self.add_word('$', 'ab', 2)(lambda a,b: [a])
         
-        @self.add_word('if', '', 3)
-        def iff(a,b,c):
-            if self._true(c):
-                return [b]
-            else:
-                return [a]
-            
+        self.add_word('if', '', 3)(lambda a,b,c: [b] if self._true(c) else [a])
+        self.add_word('abs','i', 1)(lambda a: [('i', abs(a[1]))])
+        @self.add_word('zip','a',1)
+        def a_zip(i):
+            a = i[1]
+            artype =  a[0][0]
+            l2 = len(a[0][1])
+            l1 = len(a)
+            b = []
+            for x in range(l2):
+                if artype == 'a': b.append([('a',[])])
+                else: b.append([('s',"")])
+                for y in range(l1):
+                    if artype == 'a': b[x][0] = ('a', b[x][0][1]+[a[y][1][x]])
+                    else: b[x][0] = ('s', b[x][0][1]+a[y][1][x])
+            return [('a', [j[0] for j in b])]
+                    
     # 0 [] "" {} = false, everything else = true
     
     def _false(self, a):
@@ -379,22 +386,13 @@ class Interpreter(object):
     
     def _quote(self, a):
         logging.debug("quote:"+repr(a))
-        
-        def ss(i): return '\\"' if i == '"' else i # escape inner strings
-        def toi(i):
-            t = repr(i)
-            if t[-1] == 'L': 
-                return t[:-1]
-            else:
-                return t
-            
+        def ss(i): return '\\"' if i == '"' else i # escape inner string
         def ww(i):
-            if i[0] == 'i': return toi(i[1])
+            if i[0] == 'i': return "%d" % i[1]
             if i[0] == 's': return '"' + ''.join(ss(t) for t in i[1]) + '"'
             if i[0] == 'w': return i[1]
             if i[0] == 'a': return "[" + ' '.join([ww(x) for x in i[1]]) + "]"
             if i[0] == 'b': return '{' + ''.join([ww(x) for x in i[1]]) + '}'
- 
         return [('s', ' '.join([ww(x) for x in a]))]
 
     def _coerce(self,a,b):
@@ -405,7 +403,6 @@ class Interpreter(object):
         
         order = {'i':0,'a':1,'s':2,'b':3}
         logging.debug("coerce: %s %s" % (a,b))
-    
         while a[0] != b[0]:
             if order[a[0]] > order[b[0]]: 
                 b = _raise(b)
@@ -415,7 +412,7 @@ class Interpreter(object):
         return a,b
  
 def run_tests():
-    gs_com = [('5~','-6'),
+    tests = [('5~','-6'),
               ('"1 2+"~','3'),
               ('{1 2+}~','3'),
               ('"\\144"','"d"'),
@@ -442,7 +439,7 @@ def run_tests():
               ('[1 2 3]","*','"1,2,3"'),
               ('[1 2 3][4]*','[1 4 2 4 3]'),
               ('"asdf"" "*','"a s d f"'),
-              ('[1 [2] [3 [4 [5]]]]"-"*',' "1-\002-\003\004\005" '),
+              ('[1 [2] [3 [4 [5]]]]"-"*',' "1-\\002-\\003\\004\\005" '),
               ('[1 [2] [3 [4 [5]]]][6 7]*','[1 6 7 2 6 7 3 [4 [5]]]'),
               ('[1 2 3 4]{+}*','10'),
               #(''asdf'{+}*','414'),
@@ -464,10 +461,11 @@ def run_tests():
               #('5 3 |','7'),
               #('[1 1 2 2][1 3]&','[1]'),
               #('[1 1 2 2][1 3]^','[2 3]'),
-              #(''\n'',' "\\n" '),
-              #('' \' '',' " ' " '),
+              
+              ("'\\n'",'"\\n"'),
+              ("' \\' "," ' "),
               #(' "\n" ',' "\n" '),
-              #(' "\144" ',' "d" '),
+              ('"\\144"','"d"'),
               ('1 2 [\]','[2 1]'),
               ('1 2 3\\','1 3 2'),
               ('1:a a','1 1'),
@@ -487,7 +485,7 @@ def run_tests():
               ('{asdf} -1 =','102'),
               ('10,','[0 1 2 3 4 5 6 7 8 9]'),
               ('10,,','10'),
-              #('10,{3%},','[1 2 4 5 7 8]'),
+              ('10,{3%},','[1 2 4 5 7 8]'),
               ('1 2 3.','1 2 3 3'),
               ('2 8?','256'),
               ('5 [4 3 5 1] ?','2'),
@@ -498,51 +496,51 @@ def run_tests():
               ('[1 2 3])','[1 2] 3'),
               ('1 2 3 if','2'),
               ('0 2 {1.} if','1 1'),
-              #('-2 abs','2'),
+              ('-2 abs','2'),
               ('5{1-..}do','4 3 2 1 0 0'),
               #('5{.}{1-.}while','4 3 2 1 0 0'),
-              #('[[1 2 3][4 5 6][7 8 9]]zip','[[1 4 7] [2 5 8] [3 6 9]]'),
-              #('["asdf""1234"]zip','["a1" "s2" "d3" "f4"]'),
+              ('[[1 2 3][4 5 6][7 8 9]]zip','[[1 4 7] [2 5 8] [3 6 9]]'),
+              ('["asdf""1234"]zip','["a1" "s2" "d3" "f4"]'),
               #('[1 1 0] 2 base','6'),
               #('6 2 base','[1 1 0]')
-              ('1 1+','2')
+              ('1 1+','2'),
+              
+              # original test batch
+              ("""3 2.""","3 2 2"),
+            ("""[3 2].[5]""","[3 2] [3 2] [5]"),
+            ("""1 2 3@""","2 3 1"),
+            ("""1 2\\""","2 1"),
+            ("""1 1+""","2"),
+            ("""2 4*""","8"),
+            ("""7 3 /""","2"),
+            ("""5 2 ?""","25"),
+            ("""5`""","\"5\""),
+            ("""[1 2 3]`""","\"[1 2 3]\""),
+            (""" 3 4 >""","0"),
+            ("""[1 2 3 4]{+}*""","10"),
+            ("""{[2 3 4] 5 3 6 {.@\%.}*}`""","\"{[2 3 4] 5 3 6 {.@\%.}*}\""),
+            (""" 5,`""","\"[0 1 2 3 4]\""),
+            ("""[1 2 3 4 5 6]{.* 20>}?""","5"),
+            ("""5 1+,1>{*}*""","120"),
+            ("""[1 2 3][4 5]+""","[1 2 3 4 5]"),
+            ("""5{1-..}do""","4 3 2 1 0 0"),
+            ("""2706 410{.@\%.}do;""","82"),
+            ("""5 2,~{.@+.100<}do""","5 89 144"),
+            ("""5,{1+}%{*}*""","120"),
+             # testing quotes
+              ('{}','{}'),
+              ('[]','[]'),
+              ('""','""'),
+              ('5','5'),
+              ('{}`','"{}"'),
+              ('[]`','"[]"'),
+              ('""`','"\\"\\""'),
+              ('5`','"5"'),
+              ('[1 2 3]`','"[1 2 3]"'),
+              ('[1 [2] 3]`','"[1 [2] 3]"'),
+              ('[1 [2] 3 {.@+}]`','"[1 [2] 3 {.@+}]"'),
+              ('[1 [2 "hei"] 3]`','"[1 [2 \\"hei\\"] 3]"'),
               ]
-    tests = [("""3 2.""","3 2 2"),
-             ("""[3 2].[5]""","[3 2] [3 2] [5]"),
-             ("""1 2 3@""","2 3 1"),
-             ("""1 2\\""","2 1"),
-             ("""1 1+""","2"),
-             ("""2 4*""","8"),
-             ("""7 3 /""","2"),
-             ("""5 2 ?""","25"),
-             ("""5`""","5"),
-             ("""[1 2 3]`""","[1 2 3]"),
-             (""" 3 4 >""","0"),
-             ("""[1 2 3 4]{+}*""","10"),
-             ("""{[2 3 4] 5 3 6 {.@\%.}*}`""","{[2 3 4] 5 3 6 {.@\%.}*}"),
-             (""" 5,`""","[0 1 2 3 4]"),
-             ("""[1 2 3 4 5 6]{.* 20>}?""","5"),
-             ("""5 1+,1>{*}*""","120"),
-             ("""[1 2 3][4 5]+""","[1 2 3 4 5]"),
-             ("""5{1-..}do""","4 3 2 1 0 0"),
-             ("""2706 410{.@\%.}do;""","82"),
-             ("""5 2,~{.@+.100<}do""","5 89 144"),
-             ("""5,{1+}%{*}*""","120")]
-    
-    quotetests = [
-                  ('{}','{}'),
-                  ('[]','[]'),
-                  ('""','""'),
-                  ('5','5'),
-                  ('{}`','"{}"'),
-                  ('[]`','"[]"'),
-                  ('""`','"\\"\\""'),
-                  ('5`','"5"'),
-                  ('[1 2 3]`','"[1 2 3]"'),
-                  ('[1 [2] 3]`','"[1 [2] 3]"'),
-                  ('[1 [2] 3 {.@+}]`','"[1 [2] 3 {.@+}]"'),
-                  ('[1 [2 "hei"] 3]`','"[1 [2 \\"hei\\"] 3]"'),
-                  ]
     
     #program = """~:@.{0\`{15&.*+}/}*1=!"happy sad "6/"""
     #  """=@,{@\)%!},,2=4*"non-prime">"""
@@ -551,50 +549,58 @@ def run_tests():
     #  """++=" is "\"."1$4$4-}do;;;"magic." """
     #program = """''6666,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""
     ntp = Interpreter()
-    for it in gs_com:
+    succ,ran = 0,0
+    for it in tests:
         #print it
         #try:
-        res = ntp._quote(ntp.run(it[0]))[0][1]
+        res = ntp._quote(ntp.compile(it[0]))[0][1]
+        ran += 1
         if it[1]==res: 
             print "SUCC:",it[0],"=>",res
+            succ += 1
         else: 
             print "FAIL:",it[0],"=>",res," | ",it[1]
         ntp.stack = []
+    print succ,"/",ran
+
+def run_some_scripts():      
+    ntp = Interpreter()
+    #"""''66,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""
+    #"""66,-2%{2+.2/@*\/9)499?2*+}*"""
+    #""" 7 9000 2?\/ 6+ 7000 2?\/ 6+ 5000 2?\/ 6+ 3000 2? 6+ 1000 2?  """
+    program1 = """
+    "duplicate n values top of the stack";
+    {["{"2$("$}"4$"*"]{+}*\;~}:rg;
+    
+    "1 2 3 5 8 13 ...";
+    ["2rg+..50<E@if~":E; 1 2 E~;];
+    """
+    
+    program2 = """
+    "count some digits of pi";
+    200,{)}%2%700000000+{\\10000*2?100000000*\/600000000+}*300000000-
+    """
+    #2000,{)}%2%B B6++{\A*2?B*\/B6+}*3 B*-
+    
+    #t1 = time.time()
+    #cProfile.compile('ntp.exec_ast(ntp.parser.do(program))')
+    #t2 = time.time()
+    #print '%0.3f' % (t2-t1)
+    
+    #\\tv\\/B6+
+    #1 6 B*+\\A* 2? B*\\/
+    #{[6 B*"+"3$ A*" 2?"B"*\/"]{+}*\;}:pip;
+    #1 B* [10,-2%{pip}%{+}*]~~ 3 B*+
+    #{(}~..{0>}~ {{(}~..{0>}~ C @if}@if:C;
+    #"\\.@.@+..50<E@if~":E; 1 2 E~;]
+    #[1 B*" "30,-2%{pip}%{+}*" "3 B*"+"]{+}*~
+    ntp.exec_ast(ntp.parser.do(program2))
+    print ntp._quote(ntp.stack)[0][1]
+    for it in sorted(ntp.profile.items(), key=(lambda x: x[1].time))[::-1]:
+        print it[0],"\t",it[1]
+
 
 logging.basicConfig(level=logging.INFO)
 
-#run_tests()           
-ntp = Interpreter()
-#"""''66,-2%{2+.2/@*\/10.3??2*+}*`50<~\;"""
-#"""66,-2%{2+.2/@*\/9)499?2*+}*"""
-#""" 7 9000 2?\/ 6+ 7000 2?\/ 6+ 5000 2?\/ 6+ 3000 2? 6+ 1000 2?  """
-program1 = """
-"duplicate n values top of the stack";
-{["{"2$("$}"4$"*"]{+}*\;~}:rg;
+run_tests()     
 
-"1 2 3 5 8 13 ...";
-["2rg+..50<E@if~":E; 1 2 E~;];
-"""
-
-program2 = """
-"count some digits of pi";
-200,{)}%2%700000000+{\\10000*2?100000000*\/600000000+}*300000000-
-"""
-#2000,{)}%2%B B6++{\A*2?B*\/B6+}*3 B*-
-
-#t1 = time.time()
-#cProfile.run('ntp.exec_ast(ntp.parser.do(program))')
-#t2 = time.time()
-#print '%0.3f' % (t2-t1)
-
-#\\tv\\/B6+
-#1 6 B*+\\A* 2? B*\\/
-#{[6 B*"+"3$ A*" 2?"B"*\/"]{+}*\;}:pip;
-#1 B* [10,-2%{pip}%{+}*]~~ 3 B*+
-#{(}~..{0>}~ {{(}~..{0>}~ C @if}@if:C;
-#"\\.@.@+..50<E@if~":E; 1 2 E~;]
-#[1 B*" "30,-2%{pip}%{+}*" "3 B*"+"]{+}*~
-ntp.exec_ast(ntp.parser.do(program2))
-print ntp._quote(ntp.stack)[0][1]
-for it in sorted(ntp.profile.items(), key=(lambda x: x[1].time))[::-1]:
-    print it[0],"\t",it[1]
