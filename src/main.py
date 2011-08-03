@@ -1,11 +1,5 @@
 import re, logging, time, cProfile
 
-class Enum(object):
-    def __init__(self, *names):
-        self.names = names
-        for i, name in enumerate(names):
-            setattr(self, name, i)
-
 class Word(object):
     def __init__(self, function, name, types, inputs):
         if name == '': 
@@ -15,16 +9,7 @@ class Word(object):
         self.function = function
         self.types = types  
         self.inputs = inputs
- 
-class Stackvalue(object):
-    def __init__(self, name, value):
-        self.name = name
-        self.value = value
-        
-    def __getitem__(self, i):
-        if i == 0: return self.name
-        if i == 1: return self.value
-    
+
 class Parser(object):
     def __init__(self):
         self.S_NOP = lambda x, tok: ('w',None)
@@ -42,7 +27,8 @@ class Parser(object):
         ], re.M)   
 
     def do(self, prg):
-        c,_ = self.lex.scan(prg)
+        c,leftovers = self.lex.scan(prg)
+        if leftovers: raise ValueError("Lexer fail.")
         c = c[::-1]
         logging.debug(c)
         def recurse_blocks(inp):
@@ -72,10 +58,12 @@ class FunctionProfile(object):
 class Interpreter(object):
     def __init__(self):
         self.parser = Parser()
+        
         self.words = {}
-        self.construct_language()
         self.profile = {}
         self.stack = []
+        
+        self.construct_language()
         
     def exec_ast(self, c):
         def try_run(tm,ks):
@@ -117,14 +105,8 @@ class Interpreter(object):
                 self.stack.pop()
                 x = [self.stack[-1]]
                 logging.debug(x)
-                if x[0][0] != 'b':
-                    logging.debug("created a substitution")
-                    f = (lambda: x)
-                else:
-                    logging.debug("created executable word")
-                    f = (lambda: self.exec_ast(x[0][1]))
                 
-                self.add_word(op, '', 0)(f)
+                self.add_word(op, '', 0)(lambda: x)
                 logging.debug("set: %s %s" % (op,self.stack[-1]))
             elif op in self.words:
                 # found token in wordlist
@@ -294,9 +276,11 @@ class Interpreter(object):
                 
                 
         self.add_word('<', 'ii', 2)(lambda a,b: [('i', 0 if a[1]<b[1] else 1)])
-        self.add_word('<', 'ai', 2)(lambda a,b: [('a', [i for i in b[1] if i[1]<=a[1]])])
+        self.add_word('<', 'ai', 2)(lambda a,b: 
+                                    [('a', [i for i in b[1] if i[1]<=a[1]])])
         self.add_word('>', 'ii', 2)(lambda a,b: [('i', 0 if a[1]>b[1] else 1)])
-        self.add_word('>', 'ai', 2)(lambda a,b: [('a', [i for i in b[1] if i[1]>a[1]])])
+        self.add_word('>', 'ai', 2)(lambda a,b: 
+                                    [('a', [i for i in b[1] if i[1]>a[1]])])
         
         self.add_word('<', 'si', 2)(lambda a,b: [('s',b[1][a[1]:])])
 
@@ -358,8 +342,7 @@ class Interpreter(object):
         def b_doo(a): 
             while True:
                 self.exec_ast(a[1])
-                if not self._true(self.stack.pop()): 
-                    break
+                if not self._true(self.stack.pop()): break
 
         self.add_word('$', 'i', 1)(lambda a: [self.stack[-(a[1]+1)]])
         self.add_word('$', 'a', 1)(lambda a: [('a', sorted(a[1]))])
@@ -410,13 +393,11 @@ class Interpreter(object):
             if a[0] == 'a': return ('s', ' '.join([repr(x[1]) for x in a[1]]))
             if a[0] == 's': return ('b', [('w',a[1])])
         
-        order = {'i':0,'a':1,'s':2,'b':3}
+        order = {'i':0, 'a':1, 's':2, 'b':3}
         logging.debug("coerce: %s %s" % (a,b))
         while a[0] != b[0]:
-            if order[a[0]] > order[b[0]]: 
-                b = _raise(b)
-            elif order[b[0]] > order[a[0]]: 
-                a = _raise(a)
+            if order[a[0]] > order[b[0]]:   b = _raise(b)
+            elif order[b[0]] > order[a[0]]: a = _raise(a)
         
         return a,b
  
@@ -560,8 +541,6 @@ def run_tests():
     ntp = Interpreter()
     succ,ran = 0,0
     for it in tests:
-        #print it
-        #try:
         res = ntp._quote(ntp.compile(it[0]))[0][1]
         ran += 1
         if it[1]==res: 
@@ -592,21 +571,13 @@ def run_some_scripts():
     #cProfile.compile('ntp.exec_ast(ntp.parser.do(program))')
     #t2 = time.time()
     #print '%0.3f' % (t2-t1)
-    
-    #\\tv\\/B6+
-    #1 6 B*+\\A* 2? B*\\/
-    #{[6 B*"+"3$ A*" 2?"B"*\/"]{+}*\;}:pip;
-    #1 B* [10,-2%{pip}%{+}*]~~ 3 B*+
-    #{(}~..{0>}~ {{(}~..{0>}~ C @if}@if:C;
-    #"\\.@.@+..50<E@if~":E; 1 2 E~;]
-    #[1 B*" "30,-2%{pip}%{+}*" "3 B*"+"]{+}*~
+
     ntp.exec_ast(ntp.parser.do(program2))
     print ntp._quote(ntp.stack)[0][1]
     for it in sorted(ntp.profile.items(), key=(lambda x: x[1].time))[::-1]:
         print it[0],"\t",it[1]
 
-
 logging.basicConfig(level=logging.INFO)
 
-run_tests()     
+run_tests()
 #run_some_scripts()
