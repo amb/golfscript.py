@@ -52,6 +52,9 @@ class FunctionProfile(object):
         self.time = 0
         self.calls = 1
         
+    def called(self):
+        self.calls += 1
+        
     def __repr__(self):
         return "calls:%10s\ttotal time:%.3f" % (self.calls, self.time)
 
@@ -80,10 +83,7 @@ class Interpreter(object):
     
         def ex_func(tm,t):
             ww = tm+t
-            if ww in self.profile:
-                self.profile[ww].calls += 1
-            else:
-                self.profile[ww] = FunctionProfile()
+            self.profile[ww].called()
             logging.debug("exec: %s %s stack: %s" % (tm,t,self.stack))  
             t1 = time.time() 
             sp = []
@@ -143,6 +143,7 @@ class Interpreter(object):
         return self.stack
     
     def _new_word(self, f,n,t,inp):
+        self.profile[n+t] = FunctionProfile()
         if n in self.words:
             self.words[n][t] = Word(f,n,t,inp)
         else:
